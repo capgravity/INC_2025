@@ -27,7 +27,8 @@ from flask_cors import CORS
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "http://localhost:5174"}}, supports_credentials=True)
+# CORS(app, resources={r"/*": {"origins": "http://localhost:5174"}}, supports_credentials=True)
+CORS(app, resources={r"/*": {"origins": os.getenv("CORS_ORIGIN")}}, supports_credentials=True)
 
 
 # Configure Cloudinary
@@ -126,7 +127,53 @@ def preprocess_image(image_path, target_size=alzheimer_img_size):
 def say_hi():
     return jsonify({"message": "Hi there!"})
 
-# Endpoint for Grad-CAM++
+# # Endpoint for Grad-CAM++
+# @app.route('/process', methods=['POST'])
+# def process_image():
+#     data = request.json
+#     image_url = data.get('imageUrl')
+
+#     if not image_url:
+#         return jsonify({"error": "No image URL provided"}), 400
+
+#     # Download the image
+#     img_path = os.path.join(os.getcwd(), f"temp_{uuid.uuid4()}.jpg")
+#     try:
+#         response = requests.get(image_url)
+#         if response.status_code != 200:
+#             return jsonify({"error": "Failed to download image"}), 400
+#         with open(img_path, 'wb') as f:
+#             f.write(response.content)
+#     except Exception as e:
+#         return jsonify({"error": f"Error downloading image: {str(e)}"}), 500
+
+#     # Generate the output path
+#     output_path = os.path.join(os.getcwd(), f"gradcam_output_{uuid.uuid4()}.png")
+
+#      # Process the image
+#     try:
+#         show_grad_cam_plus_plus(img_path, output_path, alpha=0.5)
+#         print("Heatmap saved at:", output_path)
+#     except Exception as e:
+#         return jsonify({"error": f"Error generating heatmap: {str(e)}"}), 500
+
+#     # Upload the heatmap to Cloudinary
+#     try:
+#         heatmap_upload_response = cloudinary.uploader.upload(output_path)
+#         heatmap_url = heatmap_upload_response["secure_url"]
+#     except Exception as e:
+#         return jsonify({"error": f"Error uploading heatmap to Cloudinary: {str(e)}"}), 500
+
+#     # Clean up temporary files
+#     try:
+#         os.remove(img_path)
+#         os.remove(output_path)
+#     except Exception as e:
+#         print(f"Error deleting temporary files: {str(e)}")
+
+#     # Return the public URL of the heatmap
+#     return jsonify({"heatmapUrl": heatmap_url})
+
 @app.route('/process', methods=['POST'])
 def process_image():
     data = request.json
@@ -135,8 +182,11 @@ def process_image():
     if not image_url:
         return jsonify({"error": "No image URL provided"}), 400
 
-    # Download the image
+    # Generate unique file names
     img_path = os.path.join(os.getcwd(), f"temp_{uuid.uuid4()}.jpg")
+    output_path = os.path.join(os.getcwd(), f"gradcam_output_{uuid.uuid4()}.png")
+
+    # Download the image
     try:
         response = requests.get(image_url)
         if response.status_code != 200:
@@ -146,31 +196,29 @@ def process_image():
     except Exception as e:
         return jsonify({"error": f"Error downloading image: {str(e)}"}), 500
 
-    # Generate the output path
-    output_path = os.path.join(os.getcwd(), f"gradcam_output_{uuid.uuid4()}.png")
-
-     # Process the image
+    # Process and upload in a try block to handle exceptions
     try:
+        # Generate Grad-CAM++ heatmap
         show_grad_cam_plus_plus(img_path, output_path, alpha=0.5)
         print("Heatmap saved at:", output_path)
-    except Exception as e:
-        return jsonify({"error": f"Error generating heatmap: {str(e)}"}), 500
 
-    # Upload the heatmap to Cloudinary
-    try:
+        # Upload to Cloudinary
         heatmap_upload_response = cloudinary.uploader.upload(output_path)
         heatmap_url = heatmap_upload_response["secure_url"]
-    except Exception as e:
-        return jsonify({"error": f"Error uploading heatmap to Cloudinary: {str(e)}"}), 500
 
-    # Clean up temporary files
-    try:
-        os.remove(img_path)
-        os.remove(output_path)
     except Exception as e:
-        print(f"Error deleting temporary files: {str(e)}")
+        return jsonify({"error": f"Error during processing or upload: {str(e)}"}), 500
 
-    # Return the public URL of the heatmap
+    finally:
+        # Cleanup temporary files regardless of success or failure
+        for file_path in [img_path, output_path]:
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    print(f"Deleted temporary file: {file_path}")
+            except Exception as e:
+                print(f"Error deleting {file_path}: {str(e)}")
+
     return jsonify({"heatmapUrl": heatmap_url})
 
 
@@ -449,4 +497,9 @@ def normalize_image(image):
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080, debug=True)
+    # app.run(host='0.0.0.0', port=8080, debug=True)
+    app.run(
+    host=os.getenv("FLASK_HOST", "0.0.0.0"),
+    port=int(os.getenv("FLASK_PORT", "8080")),
+    debug=os.getenv("FLASK_DEBUG", "False").lower() == "true"
+)

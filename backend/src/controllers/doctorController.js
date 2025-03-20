@@ -5,6 +5,7 @@ const generateTokenAndSetCookie = require("../utils/generateToken");
 // Signup a new doctor
 const signup = async (req, res) => {
   const { name, email, password, specialty } = req.body;
+  console.log("hi")
 
   try {
     if (!name || !email || !password || !specialty) {
